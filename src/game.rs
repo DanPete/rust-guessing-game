@@ -1,21 +1,27 @@
+use crate::constants::*;
+use crate::utils::MessageBuilder;
 use colored::Colorize;
 use rand::prelude::*;
 use rand::rng;
 use std::cmp::Ordering;
 use std::io::{self, Write};
 
-// Constants
-const MIN_NUMBER: u32 = 1;
-const MAX_NUMBER: u32 = 100;
-const MAX_GUESSES: u32 = 7;
-
-// Type alias for better readability
+// Type aliases
 pub type Guess = u32;
+
+/// Game state enum
+#[derive(Debug)]
+enum GameState {
+    Playing,
+    Won,
+    Lost,
+}
 
 /// Represents the state of the guessing game
 pub struct GuessingGame {
     secret_number: Guess,
     guesses_remaining: u32,
+    state: GameState,
 }
 
 impl GuessingGame {
@@ -24,6 +30,7 @@ impl GuessingGame {
         Self {
             secret_number: rng().random_range(MIN_NUMBER..=MAX_NUMBER),
             guesses_remaining: MAX_GUESSES,
+            state: GameState::Playing,
         }
     }
 
@@ -31,18 +38,19 @@ impl GuessingGame {
     pub fn run(&mut self) -> io::Result<()> {
         self.print_welcome();
 
-        while self.guesses_remaining > 0 {
+        while self.is_playing() {
             self.print_remaining_guesses();
             let guess = self.get_user_guess()?;
-
-            if self.process_guess(guess) {
-                return Ok(());
-            }
-            self.guesses_remaining -= 1;
+            self.process_guess(guess);
         }
 
-        self.print_game_over(false);
+        self.print_game_over();
         Ok(())
+    }
+
+    /// Checks if the game is still in progress
+    fn is_playing(&self) -> bool {
+        matches!(self.state, GameState::Playing) && self.guesses_remaining > 0
     }
 
     /// Gets and validates the user's guess
@@ -53,69 +61,81 @@ impl GuessingGame {
         match input.trim().parse::<Guess>() {
             Ok(num) if (MIN_NUMBER..=MAX_NUMBER).contains(&num) => Ok(num),
             Ok(_) => {
-                println!("{}", "Please enter a number between".red());
-                println!(
-                    "{} and {}",
-                    MIN_NUMBER.to_string().yellow(),
-                    MAX_NUMBER.to_string().yellow()
-                );
+                self.print_range_error();
                 self.get_user_guess()
             }
             Err(_) => {
-                println!("{}", "Please enter a valid number!".red().bold());
+                MessageBuilder::new()
+                    .add("Please enter a valid number!", |s| s.red().bold())
+                    .print();
                 self.get_user_guess()
             }
         }
     }
 
     /// Processes the user's guess and provides feedback
-    /// Returns true if the game should end (win), false otherwise
-    fn process_guess(&self, guess: Guess) -> bool {
+    fn process_guess(&mut self, guess: Guess) {
         match guess.cmp(&self.secret_number) {
-            Ordering::Equal => {
-                self.print_game_over(true);
-                true
-            }
+            Ordering::Equal => self.state = GameState::Won,
             ordering => {
                 self.print_hint(ordering);
-                false
+                self.guesses_remaining -= 1;
+                if self.guesses_remaining == 0 {
+                    self.state = GameState::Lost;
+                }
             }
         }
     }
 
     // Helper methods for printing
     fn print_welcome(&self) {
-        println!("\n{}", "Welcome to the Number Guessing Game!".bold().cyan());
-        println!("{}", "----------------------------------------".cyan());
-        println!(
-            "{}",
-            format!(
-                "I'm thinking of a number between {} and {}",
-                MIN_NUMBER.to_string().yellow(),
-                MAX_NUMBER.to_string().yellow()
+        println!(); // Keep the newline
+        MessageBuilder::new()
+            .add(WELCOME_MSG, |s| s.bold().cyan())
+            .print();
+
+        MessageBuilder::new().add(BORDER, |s| s.cyan()).print();
+
+        MessageBuilder::new()
+            .add(
+                RANGE_MSG
+                    .replace("{min}", &MIN_NUMBER.to_string())
+                    .replace("{max}", &MAX_NUMBER.to_string()),
+                |s| s.italic(),
             )
-            .italic()
-        );
-        println!(
-            "{}",
-            format!(
-                "You have {} guesses to find it!",
-                MAX_GUESSES.to_string().bold().green()
-            )
-        );
-        println!("{}", "----------------------------------------".cyan());
+            .print();
+
+        MessageBuilder::new()
+            .add(GUESSES_MSG.replace("{}", &MAX_GUESSES.to_string()), |s| {
+                s.bold().green()
+            })
+            .print();
+
+        MessageBuilder::new().add(BORDER, |s| s.cyan()).print();
     }
 
     fn print_remaining_guesses(&self) {
-        println!(
-            "\n{}",
-            format!(
-                "Guesses remaining: {}",
-                self.guesses_remaining.to_string().bold().yellow()
+        println!(); // Keep the newline
+        MessageBuilder::new()
+            .add(
+                GUESSES_REMAINING.replace("{}", &self.guesses_remaining.to_string()),
+                |s| s.bold().yellow(),
             )
-        );
-        print!("{}", "Your guess: ".green());
-        io::stdout().flush().unwrap(); // Make sure prompt appears before input
+            .print();
+
+        MessageBuilder::new()
+            .add(GUESS_PROMPT, |s| s.green())
+            .print();
+        io::stdout().flush().unwrap();
+    }
+
+    fn print_range_error(&self) {
+        MessageBuilder::new()
+            .add("Please enter a number between", |s| s.red())
+            .add(MIN_NUMBER, |s| s.yellow())
+            .add("and", |s| s.red())
+            .add(MAX_NUMBER, |s| s.yellow())
+            .print();
     }
 
     fn print_hint(&self, ordering: Ordering) {
@@ -124,36 +144,42 @@ impl GuessingGame {
             Ordering::Greater => ("Too big", "⬆️"),
             Ordering::Equal => unreachable!(),
         };
-        println!("{} {}", emoji, hint.red().bold());
+        MessageBuilder::new()
+            .add(emoji, |s| s.normal())
+            .add(hint, |s| s.red().bold())
+            .print();
     }
 
-    fn print_game_over(&self, won: bool) {
-        println!("\n{}", "----------------------------------------".cyan());
-        if won {
-            println!("{}", "🎉 CONGRATULATIONS! 🎉".bold().green());
-            println!(
-                "{}",
-                format!(
-                    "You found the number: {}",
-                    self.secret_number.to_string().bold().yellow()
-                )
-                .green()
-            );
-        } else {
-            println!("{}", " GAME OVER 😢".bold().red());
-            println!(
-                "{}",
-                format!(
-                    "The number was: {}",
-                    self.secret_number.to_string().bold().yellow()
-                )
-                .red()
-            );
-        }
-        println!("{}", "----------------------------------------".cyan());
+    fn print_game_over(&self) {
+        println!(); // Keep the newline
+        MessageBuilder::new().add(BORDER, |s| s.cyan()).print();
 
-        if won {
-            std::process::exit(0);
+        match self.state {
+            GameState::Won => {
+                MessageBuilder::new()
+                    .add(WIN_MSG, |s| s.bold().green())
+                    .print();
+                MessageBuilder::new()
+                    .add(
+                        FOUND_NUMBER.replace("{}", &self.secret_number.to_string()),
+                        |s| s.green(),
+                    )
+                    .print();
+            }
+            GameState::Lost => {
+                MessageBuilder::new()
+                    .add(LOSE_MSG, |s| s.bold().red())
+                    .print();
+                MessageBuilder::new()
+                    .add(
+                        WAS_NUMBER.replace("{}", &self.secret_number.to_string()),
+                        |s| s.red(),
+                    )
+                    .print();
+            }
+            GameState::Playing => unreachable!(),
         }
+
+        MessageBuilder::new().add(BORDER, |s| s.cyan()).print();
     }
 }
