@@ -183,3 +183,53 @@ impl GuessingGame {
         MessageBuilder::new().add(BORDER, |s| s.cyan()).print();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*; // Import everything from parent module
+
+    #[test]
+    fn test_new_game() {
+        let game = GuessingGame::new();
+        assert_eq!(game.guesses_remaining, MAX_GUESSES);
+        assert!(matches!(game.state, GameState::Playing));
+        assert!(game.secret_number >= MIN_NUMBER);
+        assert!(game.secret_number <= MAX_NUMBER);
+    }
+
+    #[test]
+    fn test_game_state_transitions() {
+        let mut game = GuessingGame::new();
+        game.secret_number = 50; // Set a known secret number for testing
+
+        // Test winning
+        game.process_guess(50);
+        assert!(matches!(game.state, GameState::Won));
+
+        // Test losing
+        let mut game = GuessingGame::new();
+        game.secret_number = 50;
+        game.guesses_remaining = 1;
+        game.process_guess(30); // Wrong guess
+        assert!(matches!(game.state, GameState::Lost));
+    }
+
+    #[test]
+    fn test_is_playing() {
+        let mut game = GuessingGame::new();
+        assert!(game.is_playing());
+
+        // Test when won
+        game.state = GameState::Won;
+        assert!(!game.is_playing());
+
+        // Test when lost
+        game.state = GameState::Lost;
+        assert!(!game.is_playing());
+
+        // Test when out of guesses
+        game.state = GameState::Playing;
+        game.guesses_remaining = 0;
+        assert!(!game.is_playing());
+    }
+}
